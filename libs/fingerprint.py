@@ -99,7 +99,7 @@ def fingerprint(channel_samples, Fs=DEFAULT_FS,
     print (colored(msg, attrs=['dark']) % len(local_maxima_to_list))
 
     # return hashes
-    return generate_hashes(local_maxima, fan_value=fan_value)
+    return generate_hashes(local_maxima_to_list, fan_value=fan_value)
 
 def get_2D_peaks(arr2D, plot=False, amp_min=DEFAULT_AMP_MIN):
     # http://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.morphology.iterate_structure.html#scipy.ndimage.morphology.iterate_structure
@@ -144,6 +144,8 @@ def get_2D_peaks(arr2D, plot=False, amp_min=DEFAULT_AMP_MIN):
 # Hash list structure: sha1_hash[0:20] time_offset
 # example: [(e05b341a9b77a51fd26, 32), ... ]
 def generate_hashes(peaks, fan_value=DEFAULT_FAN_VALUE):
+    print("in generate_hashes")
+    print(len(peaks))
     if PEAK_SORT:
       peaks.sort(key=itemgetter(1))
 
@@ -165,5 +167,7 @@ def generate_hashes(peaks, fan_value=DEFAULT_FAN_VALUE):
 
           # check if delta is between min & max
           if t_delta >= MIN_HASH_TIME_DELTA and t_delta <= MAX_HASH_TIME_DELTA:
-            h = hashlib.sha1("%s|%s|%s" % (str(freq1), str(freq2), str(t_delta)))
+            h = hashlib.sha1(("%s|%s|%s" % (str(freq1), str(freq2), str(int(t_delta)))).encode())
+
+
             yield (h.hexdigest()[0:FINGERPRINT_REDUCTION], t1)

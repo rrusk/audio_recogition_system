@@ -66,7 +66,7 @@ class SqliteDatabase(Database):
 
   def insert(self, table, params):
     keys = ', '.join(params.keys())
-    values = params.values()
+    values = list(params.values())
 
     query = "INSERT INTO songs (%s) VALUES (?, ?)" % (keys);
 
@@ -79,7 +79,7 @@ class SqliteDatabase(Database):
     def grouper(iterable, n, fillvalue=None):
       args = [iter(iterable)] * n
       return (filter(None, values) for values
-          in izip_longest(fillvalue=fillvalue, *args))
+          in zip_longest(fillvalue=fillvalue, *args))
 
     for split_values in grouper(values, 1000):
       query = "INSERT OR IGNORE INTO %s (%s) VALUES (?, ?, ?)" % (table, ", ".join(columns))
