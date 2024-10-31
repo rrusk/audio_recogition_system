@@ -88,8 +88,11 @@ def fingerprint(channel_samples, Fs=DEFAULT_FS,
       plt.show()
 
     # apply log transform since specgram() returns linear array
+    # Set NumPy to ignore divide by zero warnings
+    np.seterr(divide='ignore', invalid='ignore')
     arr2D = 10 * np.log10(arr2D) # calculates the base 10 logarithm for all elements of arr2D
     arr2D[arr2D == -np.inf] = 0  # replace infs with zeros
+    np.seterr(divide='warn', invalid='warn')
 
     # find local maxima
     local_maxima = get_2D_peaks(arr2D, plot=plots, amp_min=amp_min)

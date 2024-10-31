@@ -58,7 +58,7 @@ def align_matches(matches, db):
             largest_count = diff_counter[diff][sid]
             song_id = sid
 
-    if largest_count >= 10:  # Confidence threshold to avoid adding duplicates
+    if largest_count >= 1000:  # Confidence threshold to avoid adding duplicates
         return song_id
     return None
 
