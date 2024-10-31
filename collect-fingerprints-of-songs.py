@@ -8,67 +8,107 @@ from termcolor import colored
 from libs.reader_file import FileReader
 from libs.db_sqlite import SqliteDatabase
 from libs.config import get_config
+from itertools import zip_longest
+
+def find_matches(samples, Fs, db):
+    """Finds matches of the provided samples against the database."""
+    hashes = fingerprint.fingerprint(samples, Fs=Fs)
+    return return_matches(hashes, db)
+
+def return_matches(hashes, db):
+    """Returns matches for the provided hashes."""
+    mapper = {}
+    for hash_val, offset in hashes:
+        mapper[str(hash_val).upper()] = offset
+    values = mapper.keys()
+
+    for split_values in grouper(values, 1000):
+        split_values = list(split_values)
+        query = """
+            SELECT upper(hash), song_fk, offset
+            FROM fingerprints
+            WHERE upper(hash) IN (%s)
+        """
+        query = query % ', '.join('?' * len(split_values))
+
+        x = db.executeAll(query, split_values)
+        for hash_val, sid, db_offset in x:
+            if isinstance(db_offset, bytes):
+                db_offset = int.from_bytes(db_offset, byteorder='little')
+            else:
+                db_offset = int(db_offset)
+            yield (sid, db_offset - mapper[str(hash_val)])
+
+def align_matches(matches, db):
+    """Aligns matches and determines if a high-confidence match exists."""
+    diff_counter = {}
+    largest_count = 0
+    song_id = -1
+
+    for sid, diff in matches:
+        if diff not in diff_counter:
+            diff_counter[diff] = {}
+
+        if sid not in diff_counter[diff]:
+            diff_counter[diff][sid] = 0
+
+        diff_counter[diff][sid] += 1
+
+        if diff_counter[diff][sid] > largest_count:
+            largest_count = diff_counter[diff][sid]
+            song_id = sid
+
+    if largest_count >= 10:  # Confidence threshold to avoid adding duplicates
+        return song_id
+    return None
+
+def grouper(iterable, n, fillvalue=None):
+    """Groups elements from iterable in chunks of size n."""
+    args = [iter(iterable)] * n
+    return (filter(None, values) for values in zip_longest(fillvalue=fillvalue, *args))
 
 if __name__ == '__main__':
-  config = get_config()
+    config = get_config()
+    db = SqliteDatabase()
+    path = "mp3/"
 
-  db = SqliteDatabase()
-  path = "mp3/"
+    # Fingerprint all files in the directory
+    for filename in os.listdir(path):
+        if filename.endswith(".mp3"):
+            reader = FileReader(path + filename)
+            audio = reader.parse_audio()
 
-  # fingerprint all files in a directory
+            song = db.get_song_by_filehash(audio['file_hash'])
+            if song:
+                print(colored(f" * Skipping '{filename}' (already in DB)", 'red'))
+                continue
 
-  for filename in os.listdir(path):
-    if filename.endswith(".mp3"):
-      reader = FileReader(path + filename)
-      audio = reader.parse_audio()
+            # Check if the song has a good match in the database
+            matches = []
+            for channel in audio['channels']:
+                matches.extend(find_matches(channel, audio['Fs'], db))
 
-      song = db.get_song_by_filehash(audio['file_hash'])
-      song_id = db.add_song(filename, audio['file_hash'])
+            # If a match with high confidence is found, skip adding this song
+            matched_song_id = align_matches(matches, db)
+            if matched_song_id:
+                matched_song = db.get_song_by_id(matched_song_id)
+                print(colored(f" * Skipping '{filename}', similar to '{matched_song[1]}'", 'red'))
+                continue
 
-      msg = ' * %s %s: %s' % (
-        colored('id=%s', 'white', attrs=['dark']),       # id
-        colored('channels=%d', 'white', attrs=['dark']), # channels
-        colored('%s', 'white', attrs=['bold'])           # filename
-      )
-      print (msg % (song_id, len(audio['channels']), filename))
+            # Add new song to the database
+            song_id = db.add_song(filename, audio['file_hash'])
+            msg = f" * {colored('id=%s', 'white', attrs=['dark'])}: {colored('%s', 'white', attrs=['bold'])}" % (song_id, filename)
+            print(msg)
 
-      if song:
-        hash_count = db.get_song_hashes_count(song_id)
+            # Fingerprint and store the hashes
+            hashes = set()
+            for channeln, channel in enumerate(audio['channels']):
+                channel_hashes = fingerprint.fingerprint(channel, Fs=audio['Fs'], plots=config['fingerprint.show_plots'])
+                hashes |= set(channel_hashes)
 
-        if hash_count > 0:
-          msg = '   already exists (%d hashes), skip' % hash_count
-          print (colored(msg, 'red'))
+            # Store unique hashes
+            values = [(song_id, hash, offset) for hash, offset in hashes]
+            print(colored(f"   Storing {len(values)} hashes for '{filename}'", 'green'))
+            db.store_fingerprints(values)
 
-          continue
-
-      print (colored('   new song, going to analyze..', 'green'))
-
-      hashes = set()
-      channel_amount = len(audio['channels'])
-
-      for channeln, channel in enumerate(audio['channels']):
-        msg = '   fingerprinting channel %d/%d'
-        print (colored(msg, attrs=['dark']) % (channeln+1, channel_amount))
-
-        channel_hashes = fingerprint.fingerprint(channel, Fs=audio['Fs'], plots=config['fingerprint.show_plots'])
-        channel_hashes = set(channel_hashes)
-
-        msg = '   finished channel %d/%d, got %d hashes'
-        print (colored(msg, attrs=['dark']) % (
-          channeln+1, channel_amount, len(channel_hashes)
-        ))
-
-        hashes |= channel_hashes
-
-      msg = '   finished fingerprinting, got %d unique hashes'
-
-      values = []
-      for hash, offset in hashes:
-        values.append((song_id, hash, offset))
-
-      msg = '   storing %d hashes in db' % len(values)
-      print (colored(msg, 'green'))
-
-      db.store_fingerprints(values)
-
-  print('end')
+    print('End of fingerprinting process')

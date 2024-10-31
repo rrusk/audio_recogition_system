@@ -144,8 +144,6 @@ def get_2D_peaks(arr2D, plot=False, amp_min=DEFAULT_AMP_MIN):
 # Hash list structure: sha1_hash[0:20] time_offset
 # example: [(e05b341a9b77a51fd26, 32), ... ]
 def generate_hashes(peaks, fan_value=DEFAULT_FAN_VALUE):
-    print("in generate_hashes")
-    print(len(peaks))
     if PEAK_SORT:
       peaks.sort(key=itemgetter(1))
 
