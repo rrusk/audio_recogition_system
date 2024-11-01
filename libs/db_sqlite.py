@@ -68,7 +68,7 @@ class SqliteDatabase(Database):
     keys = ', '.join(params.keys())
     values = list(params.values())
 
-    query = "INSERT INTO songs (%s) VALUES (?, ?)" % (keys);
+    query = "INSERT INTO songs (%s) VALUES (?, ?, ?, ?, ?, ?, ?, ?)" % (keys);
 
     self.cur.execute(query, values)
     self.conn.commit()

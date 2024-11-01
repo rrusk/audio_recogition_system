@@ -18,6 +18,9 @@ stat:
 fingerprint-songs: clean
 	@python collect-fingerprints-of-songs.py
 
+fingerprint-songs-filter-duplicates: clean
+	@python collect-fingerprints-of-songs.py  --signature-check Yes
+
 recognize-listen: clean
 	@python recognize-from-microphone.py -s $(seconds)
 

@@ -1,14 +1,21 @@
 #!/usr/bin/python
 import os
 import sys
-import libs
-import libs.fingerprint as fingerprint
-
+import argparse
 from termcolor import colored
 from libs.reader_file import FileReader
 from libs.db_sqlite import SqliteDatabase
 from libs.config import get_config
 from itertools import zip_longest
+from tinytag import TinyTag
+import libs.fingerprint as fingerprint
+
+def parse_arguments():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(description="Collect fingerprints of songs.")
+    parser.add_argument("--signature-check", default="No", choices=["Yes", "No"],
+                        help="Enable signature check (default: No)")
+    return parser.parse_args()
 
 def find_matches(samples, Fs, db):
     """Finds matches of the provided samples against the database."""
@@ -68,6 +75,7 @@ def grouper(iterable, n, fillvalue=None):
     return (filter(None, values) for values in zip_longest(fillvalue=fillvalue, *args))
 
 if __name__ == '__main__':
+    args = parse_arguments()
     config = get_config()
     db = SqliteDatabase()
     path = "mp3/"
@@ -82,21 +90,32 @@ if __name__ == '__main__':
             if song:
                 print(colored(f" * Skipping '{filename}' (already in DB)", 'red'))
                 continue
+            
+            # to avoid doing a match on re-normalized files,
+            # see if the files metadata matches a song in the database
+            tag = audio['metadata']
+            title = tag["title"]
+            if title:
+                song = db.get_song_by_tags(title, tag["artist"], tag["album"], tag["genre"], tag["duration"], tag["track"])
+                if song:
+                    print(colored(f" * Skipping '{filename}' (with metadata matching '{song[1]}')", 'red'))
+                    continue
 
-            # Check if the song has a good match in the database
-            matches = []
-            for channel in audio['channels']:
-                matches.extend(find_matches(channel, audio['Fs'], db))
+            # Skip matching section if signature check is disabled
+            if args.signature_check == "Yes":
+                matches = []
+                for channel in audio['channels']:
+                    matches.extend(find_matches(channel, audio['Fs'], db))
 
-            # If a match with high confidence is found, skip adding this song
-            matched_song_id = align_matches(matches, db)
-            if matched_song_id:
-                matched_song = db.get_song_by_id(matched_song_id)
-                print(colored(f" * Skipping '{filename}', similar to '{matched_song[1]}'", 'red'))
-                continue
+                # If a match with high confidence is found, skip adding this song
+                matched_song_id = align_matches(matches, db)
+                if matched_song_id:
+                    matched_song = db.get_song_by_id(matched_song_id)
+                    print(colored(f" * Skipping '{filename}', similar to '{matched_song[1]}'", 'red'))
+                    continue
 
             # Add new song to the database
-            song_id = db.add_song(filename, audio['file_hash'])
+            song_id = db.add_song(filename, audio['file_hash'], audio['metadata'])
             msg = f" * {colored('id=%s', 'white', attrs=['dark'])}: {colored('%s', 'white', attrs=['bold'])}" % (song_id, filename)
             print(msg)
 

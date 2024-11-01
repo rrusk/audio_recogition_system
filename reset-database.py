@@ -14,7 +14,13 @@ if __name__ == '__main__':
     CREATE TABLE songs (
       id  INTEGER PRIMARY KEY AUTOINCREMENT,
       name  TEXT,
-      filehash  TEXT
+      filehash  TEXT,
+      title TEXT,
+      artist TEXT,
+      genre TEXT,
+      album TEXT,
+      track INT,
+      duration INT
     );
   """)
   print('created db.songs');

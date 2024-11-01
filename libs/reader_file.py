@@ -4,6 +4,7 @@ from pydub import AudioSegment
 from pydub.utils import audioop
 import numpy as np
 from hashlib import sha1
+from tinytag  import TinyTag
 
 class FileReader(BaseReader):
   def __init__(self, filename):
@@ -61,7 +62,8 @@ class FileReader(BaseReader):
       "extension": extension,
       "channels": channels,
       "Fs": audiofile.frame_rate,
-      "file_hash": self.parse_file_hash()
+      "file_hash": self.parse_file_hash(),
+      "metadata": self.get_song_tags()
     }
 
   def parse_file_hash(self, blocksize=2**20):
@@ -80,3 +82,15 @@ class FileReader(BaseReader):
         s.update(buf)
 
     return s.hexdigest().upper()
+  
+  def get_song_tags(self):
+    tag = TinyTag.get(self.filename)
+    metadata = {
+        'title': tag.title,
+        'artist': tag.artist,
+        'album': tag.album,
+        'genre': tag.genre,
+        'duration': tag.duration,
+        'track': tag.track
+    }
+    return metadata
