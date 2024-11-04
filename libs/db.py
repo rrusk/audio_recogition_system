@@ -35,7 +35,7 @@ class Database(object):
     if genre is not None:
         criteria['genre'] = genre
     if duration is not None:
-        criteria['duration'] = duration
+        criteria['duration'] = round(duration,1)
     if track is not None:
         criteria['track'] = track
 

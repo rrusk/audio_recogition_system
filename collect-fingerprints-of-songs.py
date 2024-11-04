@@ -10,6 +10,7 @@ from itertools import zip_longest
 from tinytag import TinyTag
 import libs.fingerprint as fingerprint
 
+
 def parse_arguments():
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Collect fingerprints of songs.")
@@ -17,10 +18,13 @@ def parse_arguments():
                         help="Enable signature check (default: No)")
     return parser.parse_args()
 
-def find_matches(samples, Fs, db):
+
+def find_matches(samples, Fs, db, precomputed_hashes=None):
     """Finds matches of the provided samples against the database."""
-    hashes = fingerprint.fingerprint(samples, Fs=Fs)
+    # Use precomputed hashes if provided, otherwise calculate them
+    hashes = precomputed_hashes if precomputed_hashes !=[] else fingerprint.fingerprint(samples, Fs=Fs)
     return return_matches(hashes, db)
+
 
 def return_matches(hashes, db):
     """Returns matches for the provided hashes."""
@@ -101,11 +105,15 @@ if __name__ == '__main__':
                     print(colored(f" * Skipping '{filename}' (with metadata matching '{song[1]}')", 'red'))
                     continue
 
-            # Skip matching section if signature check is disabled
+            # If signature check is enabled, compute fingerprints once per channel
+            hashes = set()
             if args.signature_check == "Yes":
                 matches = []
+                for channeln, channel in enumerate(audio['channels']):
+                    channel_hashes = fingerprint.fingerprint(channel, Fs=audio['Fs'], plots=config['fingerprint.show_plots'])
+                    hashes |= set(channel_hashes)
                 for channel in audio['channels']:
-                    matches.extend(find_matches(channel, audio['Fs'], db))
+                    matches.extend(find_matches(channel, audio['Fs'], db, precomputed_hashes=channel_hashes))
 
                 # If a match with high confidence is found, skip adding this song
                 matched_song_id = align_matches(matches, db)
@@ -119,13 +127,13 @@ if __name__ == '__main__':
             msg = f" * {colored('id=%s', 'white', attrs=['dark'])}: {colored('%s', 'white', attrs=['bold'])}" % (song_id, filename)
             print(msg)
 
-            # Fingerprint and store the hashes
-            hashes = set()
-            for channeln, channel in enumerate(audio['channels']):
-                channel_hashes = fingerprint.fingerprint(channel, Fs=audio['Fs'], plots=config['fingerprint.show_plots'])
-                hashes |= set(channel_hashes)
-
-            # Store unique hashes
+            # If not previously computed, compute fingerprints for storage
+            if not hashes:
+                for channeln, channel in enumerate(audio['channels']):
+                    channel_hashes = fingerprint.fingerprint(channel, Fs=audio['Fs'], plots=config['fingerprint.show_plots'])
+                    hashes |= set(channel_hashes)
+            
+            # Store unique hashes in the database
             values = [(song_id, hash, offset) for hash, offset in hashes]
             print(colored(f"   Storing {len(values)} hashes for '{filename}'", 'green'))
             db.store_fingerprints(values)
