@@ -56,7 +56,7 @@ class Database(object):
         "album": metadata['album'],
         "genre": metadata['genre'],
         "track": metadata['track'],
-        "duration": metadata['duration']
+        "duration": round(metadata['duration'],1)
       })
     else:
       song_id = song[0]
