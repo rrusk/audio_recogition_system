@@ -1,6 +1,8 @@
 import matplotlib
+
 # matplotlib.use('Agg')
-matplotlib.use('TkAgg')
+matplotlib.use("TkAgg")
+
 
 def x():
-  print('XXX')
+    print("XXX")

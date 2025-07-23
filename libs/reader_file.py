@@ -4,14 +4,15 @@ from pydub import AudioSegment
 from pydub.utils import audioop
 import numpy as np
 from hashlib import sha1
-from tinytag  import TinyTag
+from tinytag import TinyTag
+
 
 class FileReader(BaseReader):
-  def __init__(self, filename):
-    # super(FileReader, self).__init__(a)
-    self.filename = filename
+    def __init__(self, filename):
+        # super(FileReader, self).__init__(a)
+        self.filename = filename
 
-  """
+    """
   Reads any file supported by pydub (ffmpeg) and returns the data contained
   within. If file reading fails due to input being a 24-bit wav file,
   wavio is used as a backup.
@@ -22,75 +23,77 @@ class FileReader(BaseReader):
 
   returns: (channels, samplerate)
   """
-  # pydub does not support 24-bit wav files, use wavio when this occurs
-  def parse_audio(self):
-    limit = None
-    # limit = 10
 
-    songname, extension = os.path.splitext(os.path.basename(self.filename))
+    # pydub does not support 24-bit wav files, use wavio when this occurs
+    def parse_audio(self):
+        limit = None
+        # limit = 10
 
-    try:
-      audiofile = AudioSegment.from_file(self.filename)
+        songname, extension = os.path.splitext(os.path.basename(self.filename))
 
-      if limit:
-        audiofile = audiofile[:limit * 1000]
+        try:
+            audiofile = AudioSegment.from_file(self.filename)
 
-      data = np.fromstring(audiofile._data, np.int16)
+            if limit:
+                audiofile = audiofile[: limit * 1000]
 
-      channels = []
-      for chn in range(audiofile.channels):
-        channels.append(data[chn::audiofile.channels])
+            data = np.fromstring(audiofile._data, np.int16)
 
-      fs = audiofile.frame_rate
-    except audioop.error:
-      print('audioop.error')
-      pass
-        # fs, _, audiofile = wavio.readwav(filename)
+            channels = []
+            for chn in range(audiofile.channels):
+                channels.append(data[chn :: audiofile.channels])
 
-        # if limit:
-        #     audiofile = audiofile[:limit * 1000]
+            fs = audiofile.frame_rate
+        except audioop.error:
+            print("audioop.error")
+            pass
+            # fs, _, audiofile = wavio.readwav(filename)
 
-        # audiofile = audiofile.T
-        # audiofile = audiofile.astype(np.int16)
+            # if limit:
+            #     audiofile = audiofile[:limit * 1000]
 
-        # channels = []
-        # for chn in audiofile:
-        #     channels.append(chn)
+            # audiofile = audiofile.T
+            # audiofile = audiofile.astype(np.int16)
 
-    return {
-      "songname": songname,
-      "extension": extension,
-      "channels": channels,
-      "Fs": audiofile.frame_rate,
-      "file_hash": self.parse_file_hash(),
-      "metadata": self.get_song_tags()
-    }
+            # channels = []
+            # for chn in audiofile:
+            #     channels.append(chn)
 
-  def parse_file_hash(self, blocksize=2**20):
-    """ Small function to generate a hash to uniquely generate
-    a file. Inspired by MD5 version here:
-    http://stackoverflow.com/a/1131255/712997
+        return {
+            "songname": songname,
+            "extension": extension,
+            "channels": channels,
+            "Fs": audiofile.frame_rate,
+            "file_hash": self.parse_file_hash(),
+            "metadata": self.get_song_tags(),
+        }
 
-    Works with large files.
-    """
-    s = sha1()
+    def parse_file_hash(self, blocksize=2**20):
+        """Small function to generate a hash to uniquely generate
+        a file. Inspired by MD5 version here:
+        http://stackoverflow.com/a/1131255/712997
 
-    with open(self.filename , "rb") as f:
-      while True:
-        buf = f.read(blocksize)
-        if not buf: break
-        s.update(buf)
+        Works with large files.
+        """
+        s = sha1()
 
-    return s.hexdigest().upper()
-  
-  def get_song_tags(self):
-    tag = TinyTag.get(self.filename)
-    metadata = {
-        'title': tag.title,
-        'artist': tag.artist,
-        'album': tag.album,
-        'genre': tag.genre,
-        'duration': tag.duration,
-        'track': tag.track
-    }
-    return metadata
+        with open(self.filename, "rb") as f:
+            while True:
+                buf = f.read(blocksize)
+                if not buf:
+                    break
+                s.update(buf)
+
+        return s.hexdigest().upper()
+
+    def get_song_tags(self):
+        tag = TinyTag.get(self.filename)
+        metadata = {
+            "title": tag.title,
+            "artist": tag.artist,
+            "album": tag.album,
+            "genre": tag.genre,
+            "duration": tag.duration,
+            "track": tag.track,
+        }
+        return metadata

@@ -1,93 +1,185 @@
-from .db import Database
-from .config import get_config
+"""
+This module provides a concrete SQLite implementation of the Database base class.
+It handles all direct interactions with the SQLite database file.
+"""
+
+import logging
 import sqlite3
-import sys
-from itertools import zip_longest
-from termcolor import colored
+
+from .config import get_config
+from .db import Database
+from .utils import grouper
+
+log = logging.getLogger(__name__)
+
 
 class SqliteDatabase(Database):
-  TABLE_SONGS = 'songs'
-  TABLE_FINGERPRINTS = 'fingerprints'
+    """
+    SQLite database adapter for storing and retrieving song and fingerprint data.
 
-  def __init__(self):
-    self.connect()
+    This class provides a context manager for handling database connections
+    and implements the methods defined in the Database base class.
+    """
 
-  def connect(self):
-    config = get_config()
+    TABLE_SONGS = "songs"
+    TABLE_FINGERPRINTS = "fingerprints"
 
-    self.conn = sqlite3.connect(config['db.file'])
-    self.conn.text_factory = str
+    def __init__(self, db_path=None):
+        """
+        Initializes the database object.
+        Uses a provided path for testing or gets it from config for production.
+        """
+        super().__init__()
+        if db_path:
+            self.db_path = db_path  # Use provided path for tests
+        else:
+            config = get_config()
+            self.db_path = config["db.file"]  # Use config path for normal operation
 
-    self.cur = self.conn.cursor()
+        self.conn = None
+        self.cur = None
 
-    print(colored('sqlite - connection opened','white',attrs=['dark']))
+    def __enter__(self):
+        """Opens the database connection when entering a 'with' block."""
+        self.conn = sqlite3.connect(self.db_path)
+        self.conn.text_factory = str
+        self.cur = self.conn.cursor()
+        log.info("sqlite - connection opened")
+        return self
 
-  def __del__(self):
-    self.conn.commit()
-    self.conn.close()
-    print(colored('sqlite - connection has been closed','white',attrs=['dark']))
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Commits changes and closes the connection when exiting a 'with' block."""
+        if self.conn:
+            self.conn.commit()
+            self.conn.close()
+            log.info("sqlite - connection has been closed")
 
-  def query(self, query, values = []):
-    self.cur.execute(query, values)
+    # ----------------------------------------------------------------
+    # Low-level cursor execution methods
+    # ----------------------------------------------------------------
 
-  def executeOne(self, query, values = []):
-    self.cur.execute(query, values)
-    return self.cur.fetchone()
+    def query(self, query_string, values=None):
+        """Executes a query that doesn't return a value (e.g., DROP, CREATE)."""
+        if values is None:
+            values = []
+        self.cur.execute(query_string, values)
+        self.conn.commit()
 
-  def executeAll(self, query, values = []):
-    self.cur.execute(query, values)
-    return self.cur.fetchall()
+    def execute_one(self, query, values=None):
+        """Executes a query and returns the first result."""
+        if values is None:
+            values = []
+        self.cur.execute(query, values)
+        return self.cur.fetchone()
 
-  def buildSelectQuery(self, table, params):
-    conditions = []
-    values = []
+    def execute_all(self, query, values=None):
+        """Executes a query and returns all results."""
+        if values is None:
+            values = []
+        self.cur.execute(query, values)
+        return self.cur.fetchall()
 
-    for k, v in enumerate(params):
-      key = v
-      value = params[v]
-      conditions.append("%s = ?" % key)
-      values.append(value)
+    def insert(self, table, params):
+        """Inserts a single record into a table."""
+        keys = ", ".join(params.keys())
+        values = list(params.values())
+        placeholders = ", ".join(["?"] * len(values))
+        query = f"INSERT INTO {table} ({keys}) VALUES ({placeholders})"
+        self.cur.execute(query, values)
+        self.conn.commit()
+        return self.cur.lastrowid
 
-    conditions = ' AND '.join(conditions)
-    query = "SELECT * FROM %s WHERE %s" % (table, conditions)
+    # ----------------------------------------------------------------
+    # High-level implementation of abstract methods
+    # ----------------------------------------------------------------
 
-    return {
-      "query": query,
-      "values": values
-    }
+    def get_song_by_filehash(self, filehash):
+        """Retrieves a song by its file hash."""
+        return self.execute_one(
+            f"SELECT * FROM {self.TABLE_SONGS} WHERE filehash = ?", [filehash]
+        )
 
-  def findOne(self, table, params):
-    select = self.buildSelectQuery(table, params)
-    return self.executeOne(select['query'], select['values'])
+    def get_song_by_id(self, song_id):
+        """Retrieves a song by its unique ID."""
+        return self.execute_one(
+            f"SELECT * FROM {self.TABLE_SONGS} WHERE id = ?", [song_id]
+        )
 
-  def findAll(self, table, params):
-    select = self.buildSelectQuery(table, params)
-    return self.executeAll(select['query'], select['values'])
+    def get_song_by_tags(self, title, artist, album, genre, duration, track):
+        """Retrieves a song by its metadata tags."""
+        criteria = {}
+        if title:
+            criteria["title"] = title
+        if artist:
+            criteria["artist"] = artist
+        if album:
+            criteria["album"] = album
+        if genre:
+            criteria["genre"] = genre
+        if duration:
+            criteria["duration"] = round(duration, 1)
+        if track:
+            criteria["track"] = track
 
-  def insert(self, table, params):
-    keys = ', '.join(params.keys())
-    values = list(params.values())
+        if not criteria:
+            return None
 
-    query = "INSERT INTO songs (%s) VALUES (?, ?, ?, ?, ?, ?, ?, ?)" % (keys);
+        conditions = " AND ".join(f"{key} = ?" for key in criteria)
+        values = list(criteria.values())
+        query = f"SELECT * FROM {self.TABLE_SONGS} WHERE {conditions}"
 
-    self.cur.execute(query, values)
-    self.conn.commit()
+        return self.execute_one(query, values)
 
-    return self.cur.lastrowid
+    def add_song(self, filename, filehash, metadata):
+        """Adds a new song to the database if it doesn't already exist."""
+        # First, try to find the song by its unique hash
+        song = self.get_song_by_filehash(filehash)
+        if song:
+            return song[0]  # Return existing song ID
 
-  def insertMany(self, table, columns, values):
-    def grouper(iterable, n, fillvalue=None):
-      args = [iter(iterable)] * n
-      return (filter(None, values) for values
-          in zip_longest(fillvalue=fillvalue, *args))
+        # If not found by hash, try to find it by metadata tags.
+        song = self.get_song_by_tags(
+            metadata.get("title"),
+            metadata.get("artist"),
+            metadata.get("album"),
+            metadata.get("genre"),
+            metadata.get("duration"),
+            metadata.get("track"),
+        )
+        if song:
+            return song[0]  # Return existing song ID
 
-    for split_values in grouper(values, 1000):
-      query = "INSERT OR IGNORE INTO %s (%s) VALUES (?, ?, ?)" % (table, ", ".join(columns))
-      self.cur.executemany(query, split_values)
+        # If it's truly a new song, insert it
+        return self.insert(
+            self.TABLE_SONGS,
+            {
+                "name": filename,
+                "filehash": filehash,
+                "title": metadata.get("title"),
+                "artist": metadata.get("artist"),
+                "album": metadata.get("album"),
+                "genre": metadata.get("genre"),
+                "track": metadata.get("track"),
+                "duration": round(metadata.get("duration", 0), 1),
+            },
+        )
 
-    self.conn.commit()
+    def get_song_hashes_count(self, song_id):
+        """Gets the total number of fingerprints for a given song."""
+        query = f"SELECT count(*) FROM {self.TABLE_FINGERPRINTS} WHERE song_fk = ?"
+        rows = self.execute_one(query, [song_id])
+        return int(rows[0]) if rows else 0
 
-  def get_song_hashes_count(self, song_id):
-    query = 'SELECT count(*) FROM %s WHERE song_fk = %d' % (self.TABLE_FINGERPRINTS, song_id)
-    rows = self.executeOne(query)
-    return int(rows[0])
+    def store_fingerprints(self, values):
+        """Inserts multiple fingerprint records into the database."""
+        for split_values in grouper(values, 1000):
+            filtered_values = list(split_values)
+            if not filtered_values:
+                continue
+
+            query = (
+                f"INSERT OR IGNORE INTO {self.TABLE_FINGERPRINTS} "
+                "(song_fk, hash, offset) VALUES (?, ?, ?)"
+            )
+            self.cur.executemany(query, filtered_values)
+        self.conn.commit()
