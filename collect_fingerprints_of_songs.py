@@ -77,7 +77,10 @@ def return_matches(hashes, database):
 
 
 def align_matches(matches, database):
-    """Aligns matches and determines if a high-confidence match exists."""
+    """
+    Aligns matches and determines if a high-confidence match exists.
+    Returns the matched song and the confidence score.
+    """
     diff_counter = {}
     largest_count = 0
     song_id = -1
@@ -91,7 +94,11 @@ def align_matches(matches, database):
             largest_count = diff_counter[diff][sid]
             song_id = sid
 
-    return database.get_song_by_id(song_id) if largest_count >= 1000 else None
+    if largest_count >= 1000:
+        song = database.get_song_by_id(song_id)
+        return song, largest_count
+
+    return None, 0
 
 
 def fingerprint_song(audio, database, check_signature):
@@ -138,11 +145,13 @@ def fingerprint_song(audio, database, check_signature):
 
     # If checking signatures, align matches to see if the song is a duplicate
     if check_signature == "Yes":
-        if matched_song := align_matches(found_matches, database):
+        matched_song, confidence = align_matches(found_matches, database)
+        if matched_song:
             logging.warning(
-                "Skipping '%s', determined to be a duplicate of '%s'",
+                "Skipping '%s', determined to be a duplicate of '%s' (confidence: %d)",
                 audio["songname"],
                 matched_song[1],
+                confidence,
             )
             return
 
@@ -175,8 +184,10 @@ def main():
                 try:
                     file_path = os.path.join(mp3_directory, filename)
                     reader = FileReader(file_path)
-                    audio_data = reader.parse_audio()
-                    fingerprint_song(audio_data, database, arguments.signature_check)
+                    if audio_data := reader.parse_audio():
+                        fingerprint_song(
+                            audio_data, database, arguments.signature_check
+                        )
                 except (IOError, ValueError) as e:
                     logging.error("Error processing %s: %s", filename, e)
 
