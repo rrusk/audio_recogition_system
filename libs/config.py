@@ -1,3 +1,8 @@
+"""
+This module handles loading and merging configuration files for the application.
+It reads settings from default and development JSON files and combines them.
+"""
+
 import json
 import os.path
 
@@ -5,40 +10,65 @@ CONFIG_DEFAULT_FILE = "config.json"
 CONFIG_DEVELOPMENT_FILE = "config-development.json"
 
 
-# load config from multiple files,
-# and return merged result
 def get_config():
-    defaultConfig = {"env": "unknown"}
+    """
+    Loads configuration from multiple files and returns the merged result.
+    It combines a hardcoded default, the contents of config.json,
+    and the contents of config-development.json.
+
+    Returns:
+        dict: A dictionary containing the merged configuration settings.
+    """
+    default_config = {"env": "unknown"}
 
     return merge_configs(
-        defaultConfig,
+        default_config,
         parse_config(CONFIG_DEFAULT_FILE),
         parse_config(CONFIG_DEVELOPMENT_FILE),
     )
 
 
-# parse config from specific filename
-# will return empty config if file not exists, or isn't readable
 def parse_config(filename):
     """
-    Parse config from specific filename
-    Will return empty config if file not exists, or isn't readable
+    Parses a configuration dictionary from a specific JSON file.
+
+    Will return an empty dictionary if the file does not exist or
+    cannot be read.
+
+    Args:
+        filename (str): The path to the configuration file.
+
+    Returns:
+        dict: The configuration dictionary loaded from the file.
     """
     config = {}
 
     if os.path.isfile(filename):
         # file exists, open it and parse it
-        with open(filename, "r") as f:
-            config = json.load(f)
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                config = json.load(f)
+        except (IOError, json.JSONDecodeError):
+            print(f"Warning: Could not read or parse config file: {filename}")
 
     return config
 
 
-# @merge multiple dicts into one
 def merge_configs(*configs):
-    z = {}
+    """
+    Merges multiple dictionaries into one.
 
+    Later dictionaries in the argument list will overwrite earlier ones
+    if keys conflict.
+
+    Args:
+        *configs: A variable number of dictionary objects to merge.
+
+    Returns:
+        dict: A single dictionary containing all merged key-value pairs.
+    """
+    merged_config = {}
     for config in configs:
-        z.update(config)
-
-    return z
+        if config:
+            merged_config |= config
+    return merged_config

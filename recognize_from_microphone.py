@@ -50,14 +50,11 @@ def return_matches(db_conn, hashes):
     values = list(mapper.keys())
 
     for split_values in grouper(values, 1000):
-        query = """
-            SELECT upper(hash), song_fk, offset
-            FROM fingerprints
-            WHERE upper(hash) IN (%s)
-        """
-        # Create a string of '?' placeholders for the query
         placeholders = ", ".join("?" * len(split_values))
-        query %= placeholders
+        query = (
+            "SELECT upper(hash), song_fk, offset FROM fingerprints "
+            f"WHERE upper(hash) IN ({placeholders})"
+        )
 
         db_matches = db_conn.execute_all(query, split_values)
         matches_found = len(db_matches)
@@ -88,13 +85,11 @@ def align_matches(db_conn, matches):
     diff_counter = {}
     largest_count = 0
     song_id = -1
-    largest_offset = 0  # Initialize to handle case with no matches
+    largest_offset = 0
 
     for sid, diff in matches:
-        if diff not in diff_counter:
-            diff_counter[diff] = {}
-        if sid not in diff_counter[diff]:
-            diff_counter[diff][sid] = 0
+        diff_counter.setdefault(diff, {})
+        diff_counter[diff].setdefault(sid, 0)
         diff_counter[diff][sid] += 1
 
         if diff_counter[diff][sid] > largest_count:
@@ -103,7 +98,6 @@ def align_matches(db_conn, matches):
             song_id = sid
 
     song_match_data = db_conn.get_song_by_id(song_id)
-
     nseconds = round(
         float(largest_offset)
         / fingerprint.DEFAULT_FS
@@ -121,38 +115,49 @@ def align_matches(db_conn, matches):
     }
 
 
-def main():
-    """The main function to run the recognition process."""
-    config = get_config()
-    db_conn = SqliteDatabase()
+def _get_audio_settings(config):
+    """Returns a dictionary with audio recording settings."""
+    return {
+        "chunk_size": 2**12,
+        "channels": 2,
+        "record_forever": False,
+        "visualise_console": bool(config["mic.visualise_console"]),
+        "visualise_plot": bool(config["mic.visualise_plot"]),
+    }
 
-    parser = argparse.ArgumentParser(formatter_class=RawTextHelpFormatter)
-    parser.add_argument(
-        "-s", "--seconds", nargs="?", default=10, help="Number of seconds to record."
+
+def print_song_result(song):
+    """
+    Prints the recognized song's information in a formatted way.
+    """
+    msg = (
+        f" => song: {song['SONG_NAME']} (id={song['SONG_ID']})\n"
+        f"    offset: {song['OFFSET']} ({song['OFFSET_SECS']} secs)\n"
+        f"    confidence: {song['CONFIDENCE']}"
     )
-    args = parser.parse_args()
-    seconds_to_record = int(args.seconds)
+    print(colored(msg, "green"))
 
-    # Configure audio recording settings
-    CHUNK_SIZE = 2**12  # 4096 # pylint: disable=invalid-name
-    CHANNELS = 2  # pylint: disable=invalid-name
-    RECORD_FOREVER = False  # pylint: disable=invalid-name
-    VISUALISE_CONSOLE = bool(config["mic.visualise_console"])  # pylint: disable=invalid-name
-    VISUALISE_PLOT = bool(config["mic.visualise_plot"])  # pylint: disable=invalid-name
 
-    reader = MicrophoneReader(None)
+def process_microphone_recording(db_conn, audio_settings, seconds_to_record):
+    """
+    Handles the microphone recording, fingerprinting, and song recognition process.
+    """
+    reader = MicrophoneReader()
     reader.start_recording(
-        seconds=seconds_to_record, chunksize=CHUNK_SIZE, channels=CHANNELS
+        chunksize=audio_settings["chunk_size"],
+        channels=audio_settings["channels"],
     )
 
     print(colored(" * started recording..", attrs=["dark"]))
 
     # This loop is designed for continuous recording, but we break after one pass.
     while True:
-        buffer_size = int(reader.rate / reader.chunksize * seconds_to_record)
+        buffer_size = int(
+            reader.rate / audio_settings["chunk_size"] * seconds_to_record
+        )
         for i in range(buffer_size):
             nums = reader.process_recording()
-            if VISUALISE_CONSOLE:
+            if audio_settings["visualise_console"]:
                 msg = colored(f"   {i:05d}", attrs=["dark"]) + colored(
                     f" {visual_peak.calc(nums)}", "green"
                 )
@@ -161,13 +166,13 @@ def main():
                 msg = f"   processing {i+1} of {buffer_size}.."
                 print(colored(msg, attrs=["dark"]))
 
-        if not RECORD_FOREVER:
+        if not audio_settings["record_forever"]:
             break
 
     reader.stop_recording()
     print(colored(" * recording has been stopped", attrs=["dark"]))
 
-    if VISUALISE_PLOT:
+    if audio_settings["visualise_plot"]:
         data = reader.get_recorded_data()[0]
         visual_plot.show(data)
 
@@ -176,11 +181,9 @@ def main():
 
     matches = []
     channel_amount = len(data)
-
     for channel_num, channel_samples in enumerate(data):
         msg = f"   fingerprinting channel {channel_num + 1}/{channel_amount}"
         print(colored(msg, attrs=["dark"]))
-
         matches.extend(find_matches(db_conn, channel_samples))
 
         msg = f"   finished channel {channel_num + 1}/{channel_amount}, "
@@ -195,15 +198,25 @@ def main():
         print(colored(msg, "green"))
 
         song = align_matches(db_conn, matches)
-
-        msg = (
-            f" => song: {song['SONG_NAME']} (id={song['SONG_ID']})\n"
-            f"    offset: {song['OFFSET']} ({song['OFFSET_SECS']} secs)\n"
-            f"    confidence: {song['CONFIDENCE']}"
-        )
-        print(colored(msg, "green"))
+        print_song_result(song)
     else:
         print(colored(" ** no matches found at all", "red"))
+
+
+def main():
+    """The main function to run the recognition process."""
+    config = get_config()
+
+    parser = argparse.ArgumentParser(formatter_class=RawTextHelpFormatter)
+    parser.add_argument(
+        "-s", "--seconds", nargs="?", default=10, help="Number of seconds to record."
+    )
+    args = parser.parse_args()
+    seconds_to_record = int(args.seconds)
+
+    with SqliteDatabase() as db_conn:
+        audio_settings = _get_audio_settings(config)
+        process_microphone_recording(db_conn, audio_settings, seconds_to_record)
 
 
 if __name__ == "__main__":
