@@ -30,7 +30,7 @@ def find_matches(db_conn, samples, fs=fingerprint.DEFAULT_FS):
     Yields:
         tuple: A tuple of (song_id, offset_difference) for each match found.
     """
-    hashes = fingerprint.fingerprint(samples, Fs=fs)
+    hashes = fingerprint.fingerprint(samples, fs=fs)
     return return_matches(db_conn, hashes)
 
 

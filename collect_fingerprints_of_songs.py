@@ -18,7 +18,9 @@ from libs.utils import grouper
 import libs.fingerprint as fingerprint
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 
 def parse_arguments():
@@ -39,7 +41,7 @@ def find_matches(samples, fs, database, channel_hashes=None):
     hashes_to_match = (
         channel_hashes
         if channel_hashes is not None
-        else list(fingerprint.fingerprint(samples, Fs=fs))
+        else list(fingerprint.fingerprint(samples, fs=fs))
     )
     return return_matches(hashes_to_match, database)
 
@@ -125,7 +127,7 @@ def fingerprint_song(audio, database, check_signature):
     found_matches = []
 
     for channel in audio["channels"]:
-        channel_hashes = list(fingerprint.fingerprint(channel, Fs=audio["Fs"]))
+        channel_hashes = list(fingerprint.fingerprint(channel, fs=audio["Fs"]))
         all_channel_hashes.update(channel_hashes)
 
         # If signature check is enabled, find matches for the current channel
@@ -174,9 +176,7 @@ def main():
                     file_path = os.path.join(mp3_directory, filename)
                     reader = FileReader(file_path)
                     audio_data = reader.parse_audio()
-                    fingerprint_song(
-                        audio_data, database, arguments.signature_check
-                    )
+                    fingerprint_song(audio_data, database, arguments.signature_check)
                 except (IOError, ValueError) as e:
                     logging.error("Error processing %s: %s", filename, e)
 

@@ -1,16 +1,22 @@
+#!/usr/bin/python
+"""
+This module provides the core logic for generating audio fingerprints from raw
+audio samples. It transforms audio into a spectrogram, finds prominent peaks,
+and creates unique hashes based on pairs of these peaks.
+"""
 import hashlib
-import numpy as np
+from operator import itemgetter
+
 import matplotlib.mlab as mlab
 import matplotlib.pyplot as plt
-
-from termcolor import colored
+import numpy as np
 from scipy.ndimage.filters import maximum_filter
 from scipy.ndimage.morphology import (
+    binary_erosion,
     generate_binary_structure,
     iterate_structure,
-    binary_erosion,
 )
-from operator import itemgetter
+from termcolor import colored
 
 IDX_FREQ_I = 0
 IDX_TIME_J = 1
@@ -58,82 +64,119 @@ PEAK_SORT = True
 FINGERPRINT_REDUCTION = 20
 
 
+def _plot_channel_samples(channel_samples):
+    """Helper function to plot audio samples."""
+    plt.plot(channel_samples)
+    plt.title(f"{len(channel_samples)} samples")
+    plt.xlabel("time (s)")
+    plt.ylabel("amplitude (A)")
+    plt.show()
+    plt.gca().invert_yaxis()
+
+
 def fingerprint(
     channel_samples,
-    Fs=DEFAULT_FS,
+    fs=DEFAULT_FS,
     wsize=DEFAULT_WINDOW_SIZE,
     wratio=DEFAULT_OVERLAP_RATIO,
     fan_value=DEFAULT_FAN_VALUE,
     amp_min=DEFAULT_AMP_MIN,
     plots=False,
 ):
+    """
+    Generates audio fingerprints from a channel of audio samples.
 
+    Args:
+        channel_samples (np.array): Audio data for a single channel.
+        fs (int): Sample rate of the audio.
+        wsize (int): FFT window size.
+        wratio (float): Overlap ratio for sequential windows.
+        fan_value (int): Degree to which a fingerprint can be paired with neighbors.
+        amp_min (int): Minimum amplitude for a peak to be considered.
+        plots (bool): If True, displays spectrogram and peak plots.
+
+    Returns:
+        list: A list of (hash, offset) tuples.
+    """
     # show samples plot
     if plots:
-        plt.plot(channel_samples)
-        plt.title("%d samples" % len(channel_samples))
-        plt.xlabel("time (s)")
-        plt.ylabel("amplitude (A)")
-        plt.show()
-        plt.gca().invert_yaxis()
+        _plot_channel_samples(channel_samples)
 
     # FFT the channel, log transform output, find local maxima, then return
     # locally sensitive hashes.
     # FFT the signal and extract frequency components
-
-    # plot the angle spectrum of segments within the signal in a colormap
-    arr2D = mlab.specgram(
+    arr_2d = mlab.specgram(
         channel_samples,
         NFFT=wsize,
-        Fs=Fs,
+        Fs=fs,
         window=mlab.window_hanning,
         noverlap=int(wsize * wratio),
     )[0]
 
     # show spectrogram plot
     if plots:
-        plt.plot(arr2D)
+        plt.plot(arr_2d)
         plt.title("FFT")
         plt.show()
 
     # apply log transform since specgram() returns linear array
     # Set NumPy to ignore divide by zero warnings
     np.seterr(divide="ignore", invalid="ignore")
-    arr2D = 10 * np.log10(
-        arr2D
-    )  # calculates the base 10 logarithm for all elements of arr2D
-    arr2D[arr2D == -np.inf] = 0  # replace infs with zeros
+    arr_2d = 10 * np.log10(arr_2d)
+    arr_2d[arr_2d == -np.inf] = 0  # replace infs with zeros
     np.seterr(divide="warn", invalid="warn")
 
     # find local maxima
-    local_maxima = get_2D_peaks(arr2D, plot=plots, amp_min=amp_min)
+    local_maxima = get_2d_peaks(arr_2d, plot=plots, amp_min=amp_min)
 
     msg = "   local_maxima: %d of frequency & time pairs"
     local_maxima_to_list = list(local_maxima)
     print(colored(msg, attrs=["dark"]) % len(local_maxima_to_list))
 
-    # return hashes
     return generate_hashes(local_maxima_to_list, fan_value=fan_value)
 
 
-def get_2D_peaks(arr2D, plot=False, amp_min=DEFAULT_AMP_MIN):
+def _plot_spectrogram_peaks(arr_2d, time_idx, frequency_idx):
+    """Helper function to plot spectrogram and peaks."""
+    _, ax = plt.subplots()
+    ax.imshow(arr_2d)
+    ax.scatter(time_idx, frequency_idx)
+    ax.set_xlabel("Time")
+    ax.set_ylabel("Frequency")
+    ax.set_title("Spectrogram")
+    plt.gca().invert_yaxis()
+    plt.show()
+
+
+def get_2d_peaks(arr_2d, plot=False, amp_min=DEFAULT_AMP_MIN):
+    """
+    Finds local maxima in a 2D array (the spectrogram).
+
+    Args:
+        arr_2d (np.array): The spectrogram.
+        plot (bool): If True, displays a scatter plot of the peaks.
+        amp_min (int): Minimum amplitude for a peak to be considered.
+
+    Returns:
+        list: A list of (frequency_index, time_index) tuples for peaks.
+    """
     # http://docs.scipy.org/doc/scipy/reference/generated/scipy.ndimage.morphology.iterate_structure.html#scipy.ndimage.morphology.iterate_structure
     struct = generate_binary_structure(2, 1)
     neighborhood = iterate_structure(struct, PEAK_NEIGHBORHOOD_SIZE)
 
     # find local maxima using our fliter shape
-    local_max = maximum_filter(arr2D, footprint=neighborhood) == arr2D
-    background = arr2D == 0
+    local_max = maximum_filter(arr_2d, footprint=neighborhood) == arr_2d
+    background = arr_2d == 0
     eroded_background = binary_erosion(
         background, structure=neighborhood, border_value=1
     )
 
-    # Boolean mask of arr2D with True at peaks
+    # Boolean mask of arr_2d with True at peaks
     detected_peaks = local_max ^ eroded_background
 
     # extract peaks
-    amps = arr2D[detected_peaks]
-    j, i = np.where(detected_peaks)
+    amps = arr_2d[detected_peaks]
+    j, i = np.nonzero(detected_peaks)
 
     # filter peaks
     amps = amps.flatten()
@@ -146,14 +189,7 @@ def get_2D_peaks(arr2D, plot=False, amp_min=DEFAULT_AMP_MIN):
 
     # scatter of the peaks
     if plot:
-        fig, ax = plt.subplots()
-        ax.imshow(arr2D)
-        ax.scatter(time_idx, frequency_idx)
-        ax.set_xlabel("Time")
-        ax.set_ylabel("Frequency")
-        ax.set_title("Spectrogram")
-        plt.gca().invert_yaxis()
-        plt.show()
+        _plot_spectrogram_peaks(arr_2d, time_idx, frequency_idx)
 
     return zip(frequency_idx, time_idx)
 
@@ -161,14 +197,23 @@ def get_2D_peaks(arr2D, plot=False, amp_min=DEFAULT_AMP_MIN):
 # Hash list structure: sha1_hash[0:20] time_offset
 # example: [(e05b341a9b77a51fd26, 32), ... ]
 def generate_hashes(peaks, fan_value=DEFAULT_FAN_VALUE):
+    """
+    Generates hashes from a list of peaks.
+
+    Args:
+        peaks (list): A list of (frequency_index, time_index) tuples.
+        fan_value (int): Degree to which a fingerprint can be paired with neighbors.
+
+    Yields:
+        tuple: (hash, time_offset) tuples.
+    """
     if PEAK_SORT:
         peaks.sort(key=itemgetter(1))
 
     # bruteforce all peaks
-    for i in range(len(peaks)):
+    for i in range(len(peaks)):  # pylint: disable=consider-using-enumerate
         for j in range(1, fan_value):
             if (i + j) < len(peaks):
-
                 # take current & next peak frequency value
                 freq1 = peaks[i][IDX_FREQ_I]
                 freq2 = peaks[i + j][IDX_FREQ_I]
@@ -181,11 +226,8 @@ def generate_hashes(peaks, fan_value=DEFAULT_FAN_VALUE):
                 t_delta = t2 - t1
 
                 # check if delta is between min & max
-                if t_delta >= MIN_HASH_TIME_DELTA and t_delta <= MAX_HASH_TIME_DELTA:
-                    h = hashlib.sha1(
-                        (
-                            "%s|%s|%s" % (str(freq1), str(freq2), str(int(t_delta)))
-                        ).encode()
-                    )
+                if MIN_HASH_TIME_DELTA <= t_delta <= MAX_HASH_TIME_DELTA:
+                    hash_input = f"{freq1}|{freq2}|{t_delta}".encode("utf-8")
+                    h = hashlib.sha1(hash_input)
 
-                    yield (h.hexdigest()[0:FINGERPRINT_REDUCTION], t1)
+                    yield (h.hexdigest()[:FINGERPRINT_REDUCTION], t1)

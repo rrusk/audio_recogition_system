@@ -40,7 +40,7 @@ def find_matches(samples, fs, db):
     Returns:
         generator: Yields tuples of (song_id, offset difference) for matches found in the database.
     """
-    hashes = fingerprint.fingerprint(samples, Fs=fs)
+    hashes = fingerprint.fingerprint(samples, fs=fs)
     return return_matches(hashes, db)
 
 
@@ -145,7 +145,7 @@ if __name__ == "__main__":
     CONFIG = get_config()
 
     parser = argparse.ArgumentParser(formatter_class=RawTextHelpFormatter)
-    parser.add_argument('-f', '--file', required=True, help="Path to the audio file")
+    parser.add_argument("-f", "--file", required=True, help="Path to the audio file")
     args = parser.parse_args()
 
     if not args.file:
@@ -160,40 +160,48 @@ if __name__ == "__main__":
         reader = FileReader(FILE_PATH)
         audio_data = reader.parse_audio()
 
-        CHANNELS = audio_data['channels']
-        FS = audio_data['Fs']
+        CHANNELS = audio_data["channels"]
+        FS = audio_data["Fs"]
         MSG = f" * loaded {len(CHANNELS[0])} samples from file '{FILE_PATH}'"
-        print(colored(MSG, attrs=['dark']))
+        print(colored(MSG, attrs=["dark"]))
 
         # This loop must be inside the 'with' block to use the open connection
         matches = []
         for channeln, channel in enumerate(CHANNELS):
-            MSG = '   fingerprinting channel %d/%d'
-            print(colored(MSG, attrs=['dark']) % (channeln + 1, len(CHANNELS)))
+            MSG = "   fingerprinting channel %d/%d"
+            print(colored(MSG, attrs=["dark"]) % (channeln + 1, len(CHANNELS)))
 
             matches.extend(find_matches(channel, FS, DB))
 
-            MSG = '   finished channel %d/%d, got %d hashes'
-            print(colored(MSG, attrs=['dark']) % (channeln + 1, len(CHANNELS), len(matches)))
+            MSG = "   finished channel %d/%d, got %d hashes"
+            print(
+                colored(MSG, attrs=["dark"])
+                % (channeln + 1, len(CHANNELS), len(matches))
+            )
 
         # Align matches and print the final result
         TOTAL_MATCHES_FOUND = len(matches)
         if TOTAL_MATCHES_FOUND > 0:
-            MSG = ' ** totally found %d hash matches'
-            print(colored(MSG, 'green') % TOTAL_MATCHES_FOUND)
+            MSG = " ** totally found %d hash matches"
+            print(colored(MSG, "green") % TOTAL_MATCHES_FOUND)
 
             if song := align_matches(matches, DB):
-                MSG = ' => song: %s (id=%d)\n    offset: %d (%d secs)\n    confidence: %d'
-                print(colored(MSG, 'green') % (
-                    song['SONG_NAME'],
-                    song['SONG_ID'],
-                    song['OFFSET'],
-                    song['OFFSET_SECS'],
-                    song['CONFIDENCE'],
-                ))
+                MSG = (
+                    " => song: %s (id=%d)\n    offset: %d (%d secs)\n    confidence: %d"
+                )
+                print(
+                    colored(MSG, "green")
+                    % (
+                        song["SONG_NAME"],
+                        song["SONG_ID"],
+                        song["OFFSET"],
+                        song["OFFSET_SECS"],
+                        song["CONFIDENCE"],
+                    )
+                )
             else:
-                MSG = ' ** no matches found in alignment'
-                print(colored(MSG, 'red'))
+                MSG = " ** no matches found in alignment"
+                print(colored(MSG, "red"))
         else:
-            MSG = ' ** no matches found at all'
-            print(colored(MSG, 'red'))
+            MSG = " ** no matches found at all"
+            print(colored(MSG, "red"))

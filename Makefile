@@ -1,7 +1,7 @@
 .PHONY: tests
 
 install:
-	@echo soon
+	@echo Not Implemented
 
 clean:
 	@find . -name \*.pyc -delete
@@ -10,7 +10,7 @@ reset:
 	@python reset_database.py
 
 tests:
-	@python tests/*.py
+	@python -m unittest discover tests/
 
 stat:
 	@python get_database_stat.py
@@ -24,5 +24,6 @@ fingerprint-songs-filter-duplicates: clean
 recognize-listen: clean
 	@python recognize_from_microphone.py -s $(seconds)
 
+# make recognize-file file="mp3/your_song.mp3"
 recognize-file: clean
-	@python recognize_from_file.py
+	@python recognize_from_file.py -f $(file)
