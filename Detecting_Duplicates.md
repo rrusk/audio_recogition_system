@@ -5,7 +5,7 @@ The primary goal of this project is to create an audio fingerprinting system to 
 ## How It Works
 
 1. **Database Setup**: The `reset-database.py` script, runnable via `make reset`, sets up a SQLite database with two main tables: `songs` and `fingerprints`.
-2. **Fingerprinting Process**: The core logic resides in `collect-fingerprints-of-songs.py`. [cite_start]When run with the `--signature-check Yes` flag (as the `make fingerprint-songs-filter-duplicates` command does), it performs the following steps for each `.mp3` file in the `mp3/` directory[cite: 1]:
+2. **Fingerprinting Process**: The core logic resides in `collect-fingerprints-of-songs.py`. When run with the `--signature-check Yes` flag (as the `make fingerprint-songs-filter-duplicates` command does), it performs the following steps for each `.mp3` file in the `mp3/` directory:
     * It first checks if a song with the exact same file hash already exists in the database.
     * It then checks if a song with matching metadata (title, artist, album, etc.) already exists.
     * Crucially, it generates audio fingerprints of the current song and searches the database for similar fingerprints from other songs.
